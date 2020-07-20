@@ -4,6 +4,99 @@ library(gdata)
 library(ggplot2)
 library(magrittr)
 library(ggrepel)
+library(reshape2)
+
+# set working directory (depends on the computer) ----
+
+try(setwd("/imppc/labs/mplab/salonso/SST1"),silent=T)
+try(setwd("~/Documents/SST1/"),silent=T)
+
+# Graphical functions ----
+
+# ggRegression  
+
+ggRegression <- function(x,y,label=NULL,group=NULL,level=0.95) {
+  if(is.null(label)) label <- 1:length(x)
+  d0 <- data.frame(x,y)
+  rownames(d0) <- label
+  lm0 <- lm(y ~ x,d0)
+  newX <- seq(min(x),max(x),l=100)
+  pred0 <- predict.lm(lm0,newdata = data.frame(x=newX),interval = "pred",level = level)
+  pred1 <- predict.lm(lm0,interval="pred",level = level)
+  high <- which(y > pred1[,3])
+  low <- which(y < pred1[,2])
+  
+  gg0 <- ggplot() + aes(x=x,y=y) +
+    geom_point(aes(col=group)) +
+    geom_smooth(method="lm") +
+    geom_line(data=data.frame(x=newX,y=pred0[,2]),lty=2,lwd=.2) +
+    geom_line(data=data.frame(x=newX,y=pred0[,3]),lty=2,lwd=.2) +
+    geom_label_repel(aes(x=x[high],y=y[high],label=label[high])) +
+    geom_label_repel(aes(x=x[low],y=y[low],label=label[low])) 
+  
+  
+  return(list(lm=lm0,plot=gg0))
+  
+}
+
+ggPairedViolin <- function(d0) {
+  d1 <- melt(d0,measure.vars = 1:2,variable.name = "Group")
+
+  g1 <- ggplot(d1,aes(x=Group,y=value)) + 
+    geom_violin(aes(fill=Group)) + 
+    geom_segment(aes(x=1,y=d0[,1],xend=2,yend=d0[,2]),data=d0,inherit.aes = F,lwd=0.5) +
+    geom_point(shape=18,size=3) 
+  
+  t1 <- t.test(value ~ Group,d1,paired=T)
+  
+  return(list(test=t1,plot=g1))
+  
+}
+
+g1 <- ggPairedViolin(c)
+g1$plot + ylab("SST1") + xlab("Sample Type") +
+  scale_fill_manual(values=c("red", "#E69F00")) +
+  annotate(geom="label",x=1.5,y=-2,label=sprintf("P=%1.2g",g1$test$p.value))
+
+
+# end graphical functions ----
+
+# load the SST1 data from Maria/Bea ----
+sst1 <- read.xls("data/SST1_MARIA_data.xlsx",1)
+sst1$TYPE <- factor(sst1$TYPE %>% gsub(" ","",.))
+rownames(sst1) <- sst1$Sample
+
+sst1$Normalized.SYBR %>% as.character() %>% as.numeric() -> sst1$Normalized.SYBR
+
+
+
+
+
+# N vs T in SST1 ----
+
+melt(sst1,measure.vars = "Normalized.SYBR",id.vars = c("Case.number","TYPE")) %>%
+  dcast(., Case.number ~ TYPE,mean) %>% na.omit -> sst1.pairs
+sst1.pairs[,2:3] <- log2(sst1.pairs[,2:3]) # transform to logarithmic scale
+
+g1 <- ggRegression(sst1.pairs$N,sst1.pairs$T,sst1.pairs$Case.number,level=.95) 
+
+
+g1$lm %>% summary
+g1$plot + annotate("label",3,-2,label=expression(),parse=T)
+plot(sort(residuals(g1$lm)))
+
+qqnorm(residuals(g1$lm))
+abline(0,1)
+
+sst1.pairs$T - sst1.pairs$N %>% sort %>% plot
+abline(h=0)
+
+tnColors <- c("lightgreen","red")
+
+ggplot(sst1) + geom_density(aes(x=log2(Normalized.SYBR),fill=TYPE),alpha=0.5) + scale_fill_manual(values = tnColors)
+
+ggPairedViolin(sst1.pairs[,2:3])$plot + scale_fill_manual(values = tnColors)
+
 
 # load the LINE1 data from Sanne/Bea
 line1 <- read.xls("data/LINE1_summary_Bea.xlsx",2)
@@ -15,13 +108,8 @@ dups
 line1 <- line1[-which(duplicated(line1$Sample)),]
 rownames(line1) <- line1$Sample
 
-# load the SST1 data from Maria/Bea
-sst1 <- read.xls("data/SST1_MARIA_data.xlsx",1)
-sst1$TYPE <- factor(sst1$TYPE %>% gsub(" ","",.))
-rownames(sst1) <- sst1$Sample
 
-
-# common samples
+# common samples: samples analyzed for both SST1 and LINE1
 
 samples <- intersect(sst1$Sample,line1$Sample)
 
@@ -36,7 +124,7 @@ tumors <- subset(data0,TYPE=="T")
 
 all(normals$Case.number == tumors$Case.number) # check they are in the same order
 
-# ggRegression
+# ggRegression  ----
 
 ggRegression <- function(x,y,label=NULL,group=NULL) {
   if(is.null(label)) label <- 1:length(x)
@@ -61,6 +149,9 @@ ggRegression <- function(x,y,label=NULL,group=NULL) {
   return(list(lm=lm0,plot=gg0))
   
 }
+
+#----
+
 
 g1 <- ggRegression(log2(data0$Normalized.SYBR),log2(data0$Normalized.HEX),label=data0$Sample,group = data0$TYPE) 
 g1$plot + xlab("SST1 (SYBR)") + ylab("SST1 (HEX)")
