@@ -156,7 +156,7 @@ nucSize$sample <- factor(nucSize$sample)
 levels(nucSize$sample) <- gsub("LS174_23","LS174T",levels(nucSize$sample))
 levels(nucSize$sample) %>% gsub("CLONE_","Clone ",.) -> levels(nucSize$sample)
 nucSize$sample <- factor(nucSize$sample,c("LS174T",paste("Clone",1:14)))
-nucSize$area <- nucSize$area / 155^2 * 25^2 # 155px = 25μm 
+nucSize$area <- nucSize$area / 155^2 * 50^2 # 155px = 50μm in the 200x pictures # 
 
 
 mSize <- tapply(nucSize$area,nucSize$sample,mean)
@@ -187,17 +187,64 @@ ggplot(methylation) + geom_boxplot(aes(x=Clone,y=Average,fill=mMeth[Clone])) +
 
 size_meth <- data.frame(Area=mSize[-1],Meth=mMeth)
 
-ggplot(size_meth,aes(x=Meth,y=Area)) + 
+summary(lm0 <- lm(Area ~ I(1/Meth),size_meth))
+
+
+ggplot(size_meth,aes(x=Meth*100,y=Area)) + 
   stat_smooth(method="lm",formula=y~I(1/x)) + 
   geom_point(aes(fill=Meth),shape=21,size=4) + 
   scale_methylation +
-  geom_label(aes(label=sprintf("C%02i",1:14)))
+  geom_label_repel(aes(label=sprintf("C%02i",1:14)),nudge_x = .015,nudge_y = runif(14,-1,1)) +
+  xlab("SST1 Average Methylation (%)") +
+  ylab("Average nuclei area (μm2)") +
+  annotate("text",42,145,label="P=0.0035") +
+  annotate("text",42,140,label="R^2==0.52",parse=T) +
+  theme(axis.text = element_text(size=12),
+        axis.title = element_text(size=14),
+        legend.text = element_text(size=12),
+        legend.title = element_text(size=12))
 
 
-summary(lm0 <- lm(Area ~ I(1/Meth),size_meth))
-summary(lm(1/Area ~ I(1/Meth),size_meth))
-summary(lm(Area ~ poly(Meth,2),size_meth))
-summary(lm(I(1/Area) ~ I(1/Meth),size_meth))
-summary(lm(log(Area) ~ log(Meth),size_meth))
 
+# Differences in cell cycle ----
+
+cellCycle <- read.xls("data/CellCycleBEA.xlsx",sheet=1)
+rownames(cellCycle) <- cellCycle$Sample
+cellCycle <- as.matrix(cellCycle[,2:4])
+
+colnames(cellCycle) <- c("G1","S","G2")
+
+cellCycle <- cellCycle / rowSums(cellCycle) * 100 # scale to 100%
+
+barplot(t(cellCycle),horiz=T,las=1)
+
+ggplot(melt(cellCycle),aes(x=Var1,y=value,fill=Var2)) + 
+  geom_col(position=position_stack(reverse=T)) + 
+  coord_flip() +
+  scale_fill_manual(name="Cell\ncycle\nphase",
+                    labels=c("G0/1","S","G2"),
+                    values=colorRampPalette(c("tomato3","orange"))(3)) +
+  xlab(NULL) + ylab("Percentage of cells") +
+  geom_text(size = 4, 
+            position = position_stack(reverse = T,vjust = 0.5),
+            aes(label=sprintf("%0.0f%%",value))) +
+  theme(axis.text = element_text(size=12),
+        axis.title = element_text(size=14),
+        legend.text = element_text(size=12),
+        legend.title = element_text(size=12))
+
+
+# Comparison to bisulfite sequencing in cases ----
+
+oldCases <- read.csv("data/SST1.csv")
+x <- data.frame(Case.number=gsub("[XNT]","",colnames(oldCases)) %>% gsub(".1","",.,fixed = T),
+           type=gsub("[X0-9.]","",colnames(oldCases)),
+           meth = colMeans(oldCases,na.rm=T))
+
+
+y <- melt(x) %>% dcast(.,Case.number ~ type,fun.aggregate = mean)
+
+sst1.bisulfite <- merge(sst1.pairs,y,by="Case.number")
+
+plot(sst1.bisulfite$T - sst1.bisulfite$N,sst1.bisulfite$Tumor - sst1.bisulfite$Normal)
 
