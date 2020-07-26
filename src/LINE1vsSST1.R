@@ -76,6 +76,13 @@ outlayers <- function(x) {
   data.frame(lower,upper)
 }
 
+barCode <- function(cancertype="CRC",patient,sampletype=0,sample=1) {
+  sprintf("%s-%06d-%02d-%02d",cancertype,patient,sampletype,sample)
+}
+
+
+# Check also scales::rescale()
+
 # end short accesory functions ----
 
 
@@ -93,7 +100,8 @@ levels(sst1$TYPE) <- c("Normal","Tumor")
 
 melt(sst1,measure.vars = "Normalized.SYBR",id.vars = c("Case.number","TYPE")) %>%
   dcast(., Case.number ~ TYPE,mean) %>% na.omit -> sst1.pairs
-sst1.pairs[,2:3] <- log2(sst1.pairs[,2:3]) # transform to logarithmic scale
+
+sst1.pairs[,2:3] <- log2(sst1.pairs[,2:3])
 
 g1 <- ggRegression(sst1.pairs$Normal,sst1.pairs$Tumor,sst1.pairs$Case.number,level=.95) 
 
@@ -110,7 +118,7 @@ ggPairedViolin(sst1.pairs[,c("Normal","Tumor")]) + sf + sc +
   xlab(NULL) + ylab("SST1 RDL (log2)") + ggtitle("SST1 RDL") 
 
 
-# load the LINE1 data from Sanne/Bea
+# load LINE1 data from Sanne/Bea
 line1 <- read.xls("data/LINE1_summary_Bea.xlsx",2)
 line1$TYPE <- factor(line1$TYPE,c("N","T"),c("Normal","Tumor"))
 line1 <- subset(line1,!is.na(line1$average.RDR) & !is.na(TYPE))
@@ -119,8 +127,6 @@ melt(line1,measure.vars = "average.RDR",id.vars=c("Case.number","TYPE")) %>%
   dcast(.,Case.number ~ TYPE,mean) %>% na.omit -> line1.pairs
 
 line1.pairs[,2:3] <- log2(line1.pairs[,2:3])
-
-
 
 g2 <- ggRegression(line1.pairs$Normal,line1.pairs$Tumor,line1.pairs$Case.number)
 g2$plot
@@ -239,7 +245,23 @@ ggplot(melt(cellCycle),aes(x=Var1,y=value,fill=Var2)) +
 oldCases <- read.csv("data/SST1.csv")
 x <- data.frame(Case.number=gsub("[XNT]","",colnames(oldCases)) %>% gsub(".1","",.,fixed = T),
            type=gsub("[X0-9.]","",colnames(oldCases)),
-           meth = colMeans(oldCases,na.rm=T))
+           meth = apply(oldCases,2,quantile,probs=.25,na.rm=T))
+
+
+allCases <- read.xls("data/SST1-all data.xls",3)
+
+allCases$Combined.all.cases.Hypomethylation.or.No.Change
+
+differ <- allCases$Tumor.Bisulfite.Sequencing - allCases$Normal.Bisulfite.Sequencing
+
+plot(differ,allCases$Difference)
+
+abline(0,-1)
+
+table(!is.na(allCases$Tumor.Bisulfite.Sequencing))
+
+boxplot(oldCases)
+summary(oldCases)
 
 
 y <- melt(x) %>% dcast(.,Case.number ~ type,fun.aggregate = mean)
@@ -247,4 +269,26 @@ y <- melt(x) %>% dcast(.,Case.number ~ type,fun.aggregate = mean)
 sst1.bisulfite <- merge(sst1.pairs,y,by="Case.number")
 
 plot(sst1.bisulfite$T - sst1.bisulfite$N,sst1.bisulfite$Tumor - sst1.bisulfite$Normal)
+
+# Patient's data
+
+patients <- readRDS("data/patients.rds")
+
+age <- patients[sst1.pairs$Case.number,"Age"]
+plot(age,sst1.pairs$Tumor - sst1.pairs$Normal)
+
+age <- patients[line1.pairs$Case.number,"Age"]
+plot(age,line1.pairs$Tumor)
+plot(age,line1.pairs$Normal)
+plot(age,line1.pairs$Tumor - line1.pairs$Normal)
+
+cor.test(age,line1.pairs$Tumor)
+cor.test(age,line1.pairs$Normal)
+cor.test(age,line1.pairs$Tumor - line1.pairs$Normal)
+
+
+p53 <- patients[sst1.pairs$Case.number,"P53"]
+boxplot(sst1.pairs$Tumor ~ p53)
+
+ggplot(data.frame(sst1.pairs,p53)) + geom_boxplot(aes(x=p53,y=Tumor,fill=p53))
 
