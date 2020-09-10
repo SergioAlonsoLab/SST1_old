@@ -66,5 +66,19 @@ rm(nucSize)
 # Prepare data from old cases. File used in NAR 2018 ----
 
 allCases <- read.xls("data/SST1-all data.xls",3)
+allCases$Classification <- factor(allCases$Hypo.divided.Demethylation.and.Severe.demethylation)
+levels(allCases$Classification)[3] <- "NC"
+allCases$Classification <- factor(allCases$Classification,c("NC","D","SD"))
 
-names(allCases)
+allCases$Classification2 <- allCases$Classification
+allCases$Classification2[allCases$Difference >= 0.1] <- "SD"
+allCases$Classification2[allCases$Difference < 0.1] <- "D"
+allCases$Classification2[allCases$Difference < 0.05] <- "NC"
+
+table(allCases$Classification,allCases$Classification2)
+
+names(allCases)[1] <- "Case.number"
+
+write.table(allCases,file="data/allCases.tsv",sep="\t",quote=F,row.names = F)
+
+rm(allCases)

@@ -9,6 +9,8 @@ library(ggsci)
 library(scales)
 
 # create figures ?
+# Note: be careful if generating pdf graphs
+# Greek symbols are nor correctly displayed in pdfs
 
 CREATE_PLOTS <- FALSE # override if plots figures should be created
 
@@ -49,7 +51,7 @@ ggRegression <- function(x,y,label=NULL,group=NULL,level=0.95) {
 }
 
 ggPairedViolin <- function(d0,label=NULL) {
-  d1 <- melt(d0,measure.vars = 1:2,variable.name = "Group")
+  d1 <- melt(d0,measure.vars = 1:2,variable_name = "Group")
   Diff <- d0[,2] - d0[,1]
   g1 <- ggplot(d1,aes(x=Group,y=value)) + geom_violin(aes(fill=Group),alpha=0.1) 
   g2 <- geom_segment(aes(x=1,y=d0[,1],xend=2,yend=d0[,2],color=Diff),data=d0,lwd=0.5,inherit.aes = F) 
@@ -59,14 +61,16 @@ ggPairedViolin <- function(d0,label=NULL) {
   
 }
 
-# test violin
-ggPairedViolin(data.frame(a=rnorm(50),b=rnorm(50))) + scale_color_gradient2(high="darkblue",low="darkred",mid = "grey")
-
-
 # palettes
 tnColors <- c("lightgreen","red")
 sf <- scale_fill_manual(values = tnColors) 
 sc <- scale_color_gradient2(mid="grey")
+
+
+# test violin
+ggPairedViolin(data.frame(normal=rnorm(50),tumor=rnorm(50))) + 
+  scale_color_gradient2(high="darkblue",low="darkred",mid = "grey") +
+  sf
 
 
 # end graphical functions ----
@@ -86,7 +90,7 @@ sc <- scale_color_gradient2(mid="grey")
 # load the SST1 data from Maria/Bea ----
 sst1 <- read.delim("data/SST1.MSQCR.tsv",sep="\t")
 
-cast(sst1,Case.number ~ Type,mean)[,c(1,3,4)] %>%
+dcast(sst1,Case.number ~ Type,mean)[,c(1,3,4)] %>%
   na.omit -> sst1.pairs
 
 g1 <- ggRegression(sst1.pairs$Normal,sst1.pairs$Tumor,sst1.pairs$Case.number,level=.95) 
@@ -105,7 +109,7 @@ ggPairedViolin(sst1.pairs[,c("Normal","Tumor")]) + sf + sc +
 # load LINE1 data from Sanne/Bea ----
 
 line1 <- read.delim("data/LINE1.MSQCR.tsv",sep="\t",stringsAsFactors = F)
-cast(line1,Case.number ~ Type,mean)[,c("Case.number","Normal","Tumor")] %>%
+dcast(line1,Case.number ~ Type,mean)[,c("Case.number","Normal","Tumor")] %>%
   na.omit -> line1.pairs
 
 
@@ -144,8 +148,9 @@ ggRegression(delta.line1,delta.sst1,common$Case.number)
 
 nucSize <- read.delim("data/NucleiSize.tsv",sep="\t",stringsAsFactors=F)
 
-mSize <- tapply(nucSize$area,nucSize$sample,mean)
 nucSize$sample <- factor(nucSize$sample,c("LS174T",paste("Clone",1:14)))
+mSize <- tapply(nucSize$area,nucSize$sample,mean)
+
 
 if(CREATE_PLOTS) png("graphs/nucleiSize.png",6,4,units = "in",res=300)
 ggplot(nucSize) + geom_boxplot(aes(x=sample,y=area,fill=mSize[sample])) + 
@@ -249,30 +254,129 @@ ggplot(melt(cellCycle),aes(x=Var1,y=value,fill=Var2)) +
 
 oldCases <- read.csv("data/SST1.csv")
 
-melt.oldCases <- melt(oldCases)
+melt.oldCases <- melt(oldCases) %>% na.omit
 colnames(melt.oldCases)[1] <- "Sample"
 gsub("X","",melt.oldCases$Sample) -> melt.oldCases$Sample
 
+#673N and 652T were repeated because we suspected the samples
+#were switched at some point
+
+boxplot(value ~ Sample,melt.oldCases[grepl("(673|652)",melt.oldCases$Sample),])
+
+#it was decided to remove 652T and 673N, keeping the repeated experiments
+
+melt.oldCases <- subset(melt.oldCases,!Sample %in% c("652T","673N"))
+melt.oldCases$Sample <- gsub(".1","",melt.oldCases$Sample,fixed=T)
+
+
 melt.oldCases$Type <- ifelse(grepl("N",melt.oldCases$Sample),"N","T")
 melt.oldCases$Patient <- gsub("[NT]","",melt.oldCases$Sample)
-head(melt.oldCases)
-grep(".1",melt.oldCases$Sample,fixed=T,value = T) # these are repeats
 
-agg.oldCases <- aggregate(value ~ Type + Patient,melt.oldCases,mean) %>% cast(.,Patient ~ Type)
+o1 <- aggregate(value ~ Patient + Type,melt.oldCases,median)
+o1 <- aggregate(value ~ Patient,o1,diff)
+o2 <- o1$value
+names(o2) <- o1$Patient
 
-is.na(differ) %>% sum
-dim(agg.oldCases)
+melt.oldCases$Diff <- o2[melt.oldCases$Patient]
+
+ggplot(melt.oldCases,aes(reorder(Patient,Diff,mean),value,fill=Type)) + 
+  geom_boxplot(outlier.size = .5) +
+  xlab("Patient") +
+  theme(axis.text.x = element_text(angle=90,vjust = .5,hjust=1)) +
+  scale_fill_brewer(palette = "Set2")
+
+
+methSumm <- cast(melt.oldCases,Patient ~ Type,summary)
+head(methSumm)
+
+ggplot(subset(melt.oldCases,Patient==45),aes(Type,value)) +
+  geom_boxplot() +
+  geom_point() +
+  scale_y_continuous(limits=c(0,1))
+
+msqpcr.bisulfite <- merge(sst1.pairs,methSumm,by.x="Case.number",by.y="Patient")
+
+msqpcr.bisulfite[,4:9]-msqpcr.bisulfite[,10:15] -> x
+names(x) <- paste0("T",names(x))
+
+msqpcr.bisulfite <- cbind(msqpcr.bisulfite,x)
+rm(x)
+
+cor(msqpcr.bisulfite[,-1],msqpcr.bisulfite$Tumor)
+cor(msqpcr.bisulfite[,-1],msqpcr.bisulfite$Tumor-msqpcr.bisulfite$Normal)
+
+plot(msqpcr.bisulfite$T_,msqpcr.bisulfite$Tumor)
+
+summary(lm(Tumor ~ .,data = msqpcr.bisulfite[,c(3,12)]))
+
+cor.test(msqpcr.bisulfite$Tumor,msqpcr.bisulfite$T_Mean)
+cor.test(msqpcr.bisulfite$Tumor,msqpcr.bisulfite$T_Median)
+cor.test(msqpcr.bisulfite$Tumor,msqpcr.bisulfite$T_X1st.Qu.)
+
+
+ggplot(msqpcr.bisulfite) +
+  aes(label=paste0(Case.number,"T")) +
+  geom_smooth(method="lm") +
+  geom_point(aes(fill=N_Mean - T_Mean > 0.1),pch=21,size=4,show.legend = F) +
+  geom_label_repel(data=subset(msqpcr.bisulfite,N_Mean - T_Mean >= 0.1)) +
+  ylab("SST1 RDL (log2)") -> g1
+
+
+g1 +  aes(x=T_Mean,y=Tumor)
+g1 +  aes(x=T_Median,y=Tumor)
+g1 +  aes(x=T_X1st.Qu.,y=Tumor)
+
 
 # data from the excel used for NAR paper ----
 
-allCases <- read.xls("data/SST1-all data.xls",3)
+allCases <- read.delim("data/allCases.tsv",sep="\t",stringsAsFactors = F)
+allCases$Classification <- factor(allCases$Classification,c("NC","D","SD"))
+allCases$Classification2 <- factor(allCases$Classification2,c("NC","D","SD"))
 
-allCases$Combined.all.cases.Hypomethylation.or.No.Change
+table(allCases$Classification,allCases$Hypo.divided.Demethylation.and.Severe.demethylation)
 
-differ <- allCases$Tumor.Bisulfite.Sequencing - allCases$Normal.Bisulfite.Sequencing
-sum(!is.na(differ)) # 82 samples (2 were repetitions)
+# Combine MSQPCR with all data
 
-bisulf.vs.msqpcr <- merge(sst1.pairs,allCases,by.x="Case.number",by.y="CASE",order=F)
+allCases <- merge(sst1.pairs,allCases,by="Case.number")
+
+# and with the data from Johanna's file
+
+allCases <- merge(allCases,methSumm,by.x="Case.number",by.y="Patient")
+
+plot(allCases$Tumor.Bisulfite.Sequencing,allCases$T_Mean)
+abline(0,1)
+
+plot(allCases$Normal.Bisulfite.Sequencing,allCases$N_Mean)
+abline(0,1)
+
+
+ggplot(allCases) +
+  aes(x=Difference,y=Tumor-Normal) +
+  geom_point(aes(fill=Difference >= 0.1),pch=21,show.legend = F,size=3) +
+  geom_label_repel(aes(label=Case.number),data=subset(allCases,Difference >= 0.1 | Tumor - Normal > 2))
+
+
+
+library(ROCR)
+
+ggplot(allCases,aes(Classification2,Difference)) +
+  geom_boxplot() +
+  geom_point() +
+  geom_hline(yintercept=.1)
+
+
+x <- na.omit(allCases[,c("Difference","Classification2")])
+
+pred1 <- prediction(x$Difference,x$Classification2=="SD")
+plot(performance(pred1,"acc"),ylim=c(0,1),type="o",pch=20)
+boxplot(allCases$Difference ~ allCases$Hypo.divided.Demethylation.and.Severe.demethylation)
+
+dim(x) # 80 cases analyzed by bisulfite sequencing
+
+bisulf.vs.msqpcr <- merge(sst1.pairs,allCases,by="Case.number",order=F)
+dim(bisulf.vs.msqpcr)
+cor.test(bisulf.vs.msqpcr$Tumor,bisulf.vs.msqpcr$Tumor.Bisulfite.Sequencing)
+summary(lm(Tumor ~ Tumor.Bisulfite.Sequencing,bisulf.vs.msqpcr))
 
 names(bisulf.vs.msqpcr)
 
@@ -288,15 +392,38 @@ ggplot(bisulf.vs.msqpcr) +
   ylab("SST1 RDL (log2)") +
   geom_label_repel(aes(label=Case.number)) 
 
-factor(bisulf.vs.msqpcr$Hypo.divided.Demethylation.and.Severe.demethylation,
-       c("NC","D","D?","SD")) -> bisulf.vs.msqpcr$Classification
-levels(bisulf.vs.msqpcr$Classification)[3] <- "D"
+s0 <- aggregate(I(Tumor-Normal) ~ Classification2,bisulf.vs.msqpcr,summary)
+
+s0$`I(Tumor - Normal)`[,5] - s0$`I(Tumor - Normal)`[,2]
+aggregate(I(Tumor-Normal) ~ Classification2,bisulf.vs.msqpcr,IQR)
+
+boxplot(I(Tumor-Normal) ~ Classification2,bisulf.vs.msqpcr) -> bp
+
 
 ggplot(bisulf.vs.msqpcr) +
-  aes(x=Classification,
+  aes(x=Classification2,
       y=Tumor-Normal) +
-  geom_boxplot() +
-  geom_hline(yintercept = 2,lty=2)
+  geom_boxplot(aes(),show.legend = F) +
+  geom_point(pch=21,fill="white",size=3) +
+  geom_hline(yintercept = 1.5,lty=2) +
+  ylab("SST1 RDL Tumor-Normal (log2)") 
+
+subset(bisulf.vs.msqpcr,Classification2=="SD" & I(Tumor - Normal) < 2)
+subset(bisulf.vs.msqpcr,Classification=="NC" & I(Tumor - Normal) > 1.5)
+
+ggplot(bisulf.vs.msqpcr) +
+  aes(Classification,
+      y=Tumor-Normal,
+      fill=Classification) +
+  stat_boxplot() -> test
+
+
+ggplot(bisulf.vs.msqpcr) +
+  aes(Classification,
+      y=Difference) +
+  geom_boxplot(aes(fill=Classification)) +
+  geom_hline(yintercept=0.1,lty=2) +
+  ylab(" (bisulfite ")
 
 xtabs(~ I(Tumor - Normal >= 1.9) + Classification,bisulf.vs.msqpcr)
 
@@ -315,13 +442,26 @@ summary(logistic2)
 
 library(ROCR)
 
-
-
 pred1 <- prediction(bisulf.vs.msqpcr$Tumor,bisulf.vs.msqpcr$Classification=="SD")
 pred2 <- prediction(bisulf.vs.msqpcr$Tumor - bisulf.vs.msqpcr$Normal,bisulf.vs.msqpcr$Classification=="SD")
 
 plot(performance(pred1,"acc"),type="o",pch=20)
 plot(performance(pred2,"acc"),type="o",pch=20)
+plot(performance(pred2,"tpr"),col="green",add=T)
+plot(performance(pred2,"fpr"),col="red",add=T)
+plot(performance(pred2,"tnr"),col="orange",add=T)
+
+performance(pred2,"acc")@y.values[[1]] %>% max
+
+plot(performance(pred2,"tpr","fpr"),type="o",pch=20)
+
+performance(pred1,"auc")@y.values[[1]]
+performance(pred2,"auc")@y.values[[1]]
+
+wilcox.test(I(Tumor-Normal) ~ I(Classification=="SD"),bisulf.vs.msqpcr)
+wilcox.test(I(Tumor) ~ I(Classification=="SD"),bisulf.vs.msqpcr)
+
+
 grid()
 
 perf1 <- performance(pred1,"tpr","fpr")
