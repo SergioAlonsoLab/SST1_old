@@ -51,7 +51,7 @@ ggRegression <- function(x,y,label=NULL,group=NULL,level=0.95) {
 }
 
 ggPairedViolin <- function(d0,label=NULL) {
-  d1 <- melt(d0,measure.vars = 1:2,variable_name = "Group")
+  d1 <- melt(d0,measure.vars = 1:2,variable.name = "Group")
   Diff <- d0[,2] - d0[,1]
   g1 <- ggplot(d1,aes(x=Group,y=value)) + geom_violin(aes(fill=Group),alpha=0.1) 
   g2 <- geom_segment(aes(x=1,y=d0[,1],xend=2,yend=d0[,2],color=Diff),data=d0,lwd=0.5,inherit.aes = F) 
@@ -68,6 +68,9 @@ sc <- scale_color_gradient2(mid="grey")
 
 
 # test violin
+
+
+
 ggPairedViolin(data.frame(normal=rnorm(50),tumor=rnorm(50))) + 
   scale_color_gradient2(high="darkblue",low="darkred",mid = "grey") +
   sf
@@ -151,6 +154,11 @@ nucSize <- read.delim("data/NucleiSize.tsv",sep="\t",stringsAsFactors=F)
 nucSize$sample <- factor(nucSize$sample,c("LS174T",paste("Clone",1:14)))
 mSize <- tapply(nucSize$area,nucSize$sample,mean)
 
+m_cv <- function(x) c(mean=mean(x),sd=sd(x),cv=sd(x)/mean(x))
+aggregate(area ~ sample,nucSize,m_cv)
+
+
+ggplot(nucSize,aes(log(area))) + geom_density(aes(fill=sample),alpha=.2) 
 
 if(CREATE_PLOTS) png("graphs/nucleiSize.png",6,4,units = "in",res=300)
 ggplot(nucSize) + geom_boxplot(aes(x=sample,y=area,fill=mSize[sample])) + 
@@ -286,7 +294,8 @@ ggplot(melt.oldCases,aes(reorder(Patient,Diff,mean),value,fill=Type)) +
   scale_fill_brewer(palette = "Set2")
 
 
-methSumm <- cast(melt.oldCases,Patient ~ Type,summary)
+methSumm <- aggregate(value ~ Type + Patient,melt.oldCases,summary)
+  
 head(methSumm)
 
 ggplot(subset(melt.oldCases,Patient==45),aes(Type,value)) +

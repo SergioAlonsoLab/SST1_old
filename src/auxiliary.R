@@ -19,3 +19,9 @@ outlayers <- function(x) {
 barCode <- function(cancertype="CRC",patient,sampletype=0,sample=1) {
   sprintf("%s-%06d-%02d-%02d",cancertype,patient,sampletype,sample)
 }
+
+# install library if not present
+
+library2 <- function(x) {
+  if(!require(x)) {install.packages(x);require(x)}
+}
