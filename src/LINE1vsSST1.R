@@ -177,6 +177,73 @@ table_size$n <- table(nucSize$sample)
 
 write.table(table_size,file="sandbox/sizes.tsv",sep="\t",quote=F)
 
+
+TukeyNetwork <- function(x,pval=0.05,bg="lightblue",seed=1) {
+  
+  require(igraph)
+  require(magrittr)
+  require(scales)
+  
+  tuk <- as.data.frame(TukeyHSD(aov(value ~ sample,x))$sample)
+  
+  pvals <- tuk[,4]
+  
+  # create the graph object
+  
+  set.seed(seed)
+  
+  rownames(tuk) %>% strsplit(.,split="-") %>%
+    as.data.frame %>% t %>% 
+    graph_from_edgelist(.,directed=F) -> g0
+  
+  E(g0)$curved <- 0.3
+  E(g0)$width <- (1+pvals)^2
+  E(g0)$color <- "darkgrey"
+  
+  V(g0)$color <- bg
+  
+  if(any(pvals < pval))  g0 <- delete.edges(g0,which(pvals < pval))
+  
+  com0 <- cluster_fast_greedy(g0,F)
+  
+  plot.igraph(g0,
+              mark.groups = com0,
+              layout=layout_with_fr(g0),
+              vertex.label.color="black")
+  
+  invisible(list(Tukey=tuk, Graph=g0, Groups=com0))
+}
+
+
+TukeyNetwork(data.frame(sample=nucSize$sample %>% gsub("Clone ","",.) %>% gsub("LS174T","CL",.),
+                        value=nucSize$area),pval = 0.01) -> clusters0
+
+
+nucSize$Group <- nucSize$sample
+levels(nucSize$Group) <- clusters0$Groups$membership
+aggregate(area ~ sample,nucSize,m_cv)
+
+TukeyHSD(aov(area ~ Group,nucSize))
+
+
+library(mixtools)
+
+values <- nucSize$area[nucSize$sample=="Clone 1"] %>% log
+plot(density(values))
+set.seed(3)
+k <- 2
+mix0 <- normalmixEM(values,k = k)
+x <- seq(min(values),max(values),l=1000)
+y <- list()
+for(i in 1:k) {
+  y[[i]] <- dnorm(x,mean = mix0$mu[i],sd = mix0$sigma[i])*mix0$lambda[i]
+  lines(x,y[[i]],lty=2)
+}
+lines(x,rowSums(as.data.frame(y)),col=3)
+mix0$lambda
+
+chisq.test(c(4,10),p = c(.5,.5))
+
 # Methylation of LS174T clones ----
 
 # Load methylation data
@@ -528,4 +595,46 @@ p53 <- patients[sst1.pairs$Case.number,"P53"]
 boxplot(sst1.pairs$Tumor ~ p53)
 
 ggplot(data.frame(sst1.pairs,p53)) + geom_boxplot(aes(x=p53,y=Tumor,fill=p53))
+
+
+# RDL vs KRAS & BRAF -----
+
+imppc <- read.delim("data/IMPPC.tsv")
+
+muts <- data.frame(Case.number=as.character(imppc$Patient),
+                   KRAS=imppc$KRAS,
+                   KRAS.aa=imppc$KRAS.aa.mut,
+                   BRAF=imppc$BRAF)
+
+
+rdl.muts <- merge(sst1.pairs,muts)
+rdl.muts$Somatic <- rdl.muts$Tumor-rdl.muts$Normal
+
+
+subset(rdl.muts,KRAS=="")
+subset(rdl.muts,BRAF=="")
+
+ggRegression(sst1.pairs$Normal,sst1.pairs$Tumor,label = sst1.pairs$Case.number)
+
+ggplot(sst1.pairs,aes(Tumor-Normal)) + geom_density()
+
+mixtools::normalmixEM(sst1.pairs$Tumor-sst1.pairs$Normal)
+
+
+ggRegression(rdl.muts$Normal,rdl.muts$Tumor,group = rdl.muts$KRAS,label = rdl.muts$Case.number) -> gkras
+ggRegression(rdl.muts$Normal,rdl.muts$Tumor,group = rdl.muts$BRAF,label = rdl.muts$Case.number) -> gbraf
+
+
+gkras$plot + 
+  scale_color_manual(values = c("orange","green3","red3")) + 
+  xlab("SST1 RDL in Normal") +
+  ylab("SST1 RDL in Tumor") +
+  labs(colour="KRAS")
+
+gbraf$plot + 
+  scale_color_manual(values = c("orange","green3","red3")) + 
+  xlab("SST1 RDL in Normal") +
+  ylab("SST1 RDL in Tumor") +
+  labs(colour="BRAF")
+
 

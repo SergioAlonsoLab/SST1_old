@@ -11,6 +11,7 @@ subValue <- function(find,sub,where) {
 }
 
 try(setwd("~/Documents/WORK/SST1/"))
+try(setwd("~/Documents/SST1/"))
 
 # Prepare SST1 MSQPCR data ----
 
@@ -82,3 +83,11 @@ names(allCases)[1] <- "Case.number"
 write.table(allCases,file="data/allCases.tsv",sep="\t",quote=F,row.names = F)
 
 rm(allCases)
+
+# Prepare IMPPC database
+
+
+imppc <- read.xls("data/IMPPC_DB.xlsx")
+imppc <- imppc[,1:64]
+write.table(imppc,file="data/IMPPC.tsv",sep="\t",quote=F,row.names = F)
+rm(imppc)
